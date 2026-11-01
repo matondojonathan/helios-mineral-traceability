@@ -1,0 +1,23 @@
+# Dépendances et builds
+node_modules/
+dist/
+*.log
+
+# Variables d'environnement
+.env
+.env.*
+!.env.example
+
+# Identités et secrets Hyperledger Fabric
+**/wallet/
+**/*.id
+**/priv_sk
+**/keystore/
+**/*.pem
+**/*.key
+**/*_sk
+
+# Fichiers temporaires
+*.swp
+*.swo
+.DS_Store
