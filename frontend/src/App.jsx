@@ -11,7 +11,7 @@ import {
 } from '@fortawesome/free-solid-svg-icons'
 import './App.css'
 
-const API_URL = "https://sun-trusts-whats-recall.trycloudflare.com/api";
+const API_URL = "https://benz-suddenly-surplus-galaxy.trycloudflare.com/api";
 
 const navigation = [
   { label: 'Tableau de bord', icon: faHouse },
