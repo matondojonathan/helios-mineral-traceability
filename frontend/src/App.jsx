@@ -172,6 +172,7 @@ function App() {
   const [transferring, setTransferring] = useState(false)
   const [transferError, setTransferError] = useState('')
   const [transferSuccess, setTransferSuccess] = useState('')
+  const [certifyingLotId, setCertifyingLotId] = useState('')
 
   const [transferData, setTransferData] = useState({
     id: '',
@@ -391,6 +392,42 @@ function App() {
       setTransferError(error.message)
     } finally {
       setTransferring(false)
+    }
+  }
+
+  // Certifier un lot via l'organisation habilitée Org2MSP
+  async function handleCertify(lot) {
+    if (!lot || lot.certified || certifyingLotId) return
+
+    const confirmed = window.confirm(
+      `Confirmer la certification du lot ${lot.id} ? Cette opération sera enregistrée sur la blockchain.`
+    )
+
+    if (!confirmed) return
+
+    setCertifyingLotId(lot.id)
+
+    try {
+      const response = await fetch(
+        `${API_URL}/lots/${encodeURIComponent(lot.id)}/certify`,
+        { method: 'POST' }
+      )
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.details || data.error || 'Échec de la certification.')
+      }
+
+      await fetchLots()
+      await fetchNotifications()
+
+      window.alert(`Le lot ${lot.id} a été certifié avec succès.`)
+    } catch (error) {
+      console.error('Erreur de certification :', error)
+      window.alert(`Certification impossible : ${error.message}`)
+    } finally {
+      setCertifyingLotId('')
     }
   }
 
@@ -848,6 +885,8 @@ function App() {
                 lots={filteredLots.slice(0, 5)}
                 loading={loading}
                 onViewHistory={openHistory}
+                onCertify={handleCertify}
+                certifyingLotId={certifyingLotId}
                 onViewAll={() => setActivePage('Lots de minerais')}
                 title="Derniers lots enregistrés"
                 emptyMessage={normalizedSearch ? 'Aucun lot ne correspond à votre recherche.' : 'Aucun lot enregistré.'}
@@ -883,6 +922,8 @@ function App() {
                 lots={filteredLots}
                 loading={loading}
                 onViewHistory={openHistory}
+                onCertify={handleCertify}
+                certifyingLotId={certifyingLotId}
                 title="Registre des minerais"
                 emptyMessage={normalizedSearch ? 'Aucun lot ne correspond à votre recherche.' : 'Aucun lot enregistré.'}
               />
@@ -1284,6 +1325,8 @@ function LotsTable({
   lots,
   loading,
   onViewHistory,
+  onCertify,
+  certifyingLotId,
   onViewAll,
   title,
   emptyMessage = 'Aucun lot enregistré.',
@@ -1356,16 +1399,28 @@ function LotsTable({
                   </td>
 
                   <td className="px-5 py-4">
-                    {onViewHistory && (
-                      <button
-                        onClick={() => onViewHistory(lot.id)}
-                        className="text-blue-500 hover:text-blue-400"
-                        title="Consulter l'historique"
-                        aria-label={`Historique de ${lot.id}`}
-                      >
-                        <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
-                      </button>
-                    )}
+                    <div className="flex items-center gap-3">
+                      {onViewHistory && (
+                        <button
+                          onClick={() => onViewHistory(lot.id)}
+                          className="text-blue-500 hover:text-blue-400"
+                          title="Consulter l'historique"
+                          aria-label={`Historique de ${lot.id}`}
+                        >
+                          <FontAwesomeIcon icon={faArrowUpRightFromSquare} />
+                        </button>
+                      )}
+
+                      {!lot.certified && onCertify && (
+                        <button
+                          onClick={() => onCertify(lot)}
+                          disabled={Boolean(certifyingLotId)}
+                          className="rounded-md bg-green-500/10 px-3 py-1.5 text-xs font-semibold text-green-600 hover:bg-green-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {certifyingLotId === lot.id ? 'Certification...' : 'Certifier'}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))
