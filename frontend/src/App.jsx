@@ -523,6 +523,7 @@ function App() {
   const showDashboard = activePage === 'Tableau de bord'
   const showLots = activePage === 'Lots de minerais'
   const showHistory = activePage === 'Historique'
+  const showCertification = activePage === 'Certification'
 
   return (
     <div className="min-h-screen bg-[var(--bg)] text-main">
@@ -930,6 +931,88 @@ function App() {
             </section>
           )}
 
+          {/* CENTRE DE CERTIFICATION */}
+          {showCertification && (
+            <section className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h1 className="font-heading text-2xl font-bold">
+                    Centre de certification
+                  </h1>
+                  <p className="mt-1 text-sm text-muted">
+                    Gestion des certifications des lots enregistrés sur Hyperledger Fabric.
+                  </p>
+                </div>
+
+                <button
+                  onClick={fetchLots}
+                  disabled={loading}
+                  className="rounded-lg border border-app px-4 py-2.5 text-sm font-semibold hover:bg-[var(--surface-secondary)] disabled:opacity-50"
+                >
+                  Actualiser les données
+                </button>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="app-surface rounded-xl p-5">
+                  <p className="text-sm text-muted">Total des lots</p>
+                  <p className="mt-2 font-heading text-3xl font-bold">
+                    {lots.length}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    Lots enregistrés dans le registre
+                  </p>
+                </div>
+
+                <div className="app-surface rounded-xl p-5">
+                  <p className="text-sm text-muted">Lots certifiés</p>
+                  <p className="mt-2 font-heading text-3xl font-bold text-green-600">
+                    {lots.filter(lot => lot.certified).length}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    Certifications enregistrées
+                  </p>
+                </div>
+
+                <div className="app-surface rounded-xl p-5">
+                  <p className="text-sm text-muted">En attente</p>
+                  <p className="mt-2 font-heading text-3xl font-bold text-amber-600">
+                    {lots.filter(lot => !lot.certified).length}
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    Lots non encore certifiés
+                  </p>
+                </div>
+              </div>
+
+              <div className="app-surface rounded-xl p-5">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-green-500/10 text-green-600">
+                    <FontAwesomeIcon icon={faShieldHalved} />
+                  </div>
+                  <div>
+                    <h2 className="font-heading font-bold">
+                      Autorité de certification
+                    </h2>
+                    <p className="mt-1 text-sm text-muted">
+                      Les opérations de certification sont exécutées par l'organisation habilitée Org2MSP via le réseau Hyperledger Fabric.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <LotsTable
+                lots={filteredLots}
+                loading={loading}
+                onViewHistory={openHistory}
+                onCertify={handleCertify}
+                certifyingLotId={certifyingLotId}
+                title="Registre des certifications"
+                emptyMessage="Aucun lot à afficher."
+              />
+            </section>
+          )}
+
           {/* HISTORIQUE */}
           {showHistory && (
             <section className="space-y-6">
@@ -1136,7 +1219,7 @@ function App() {
           )}
 
           {/* AUTRES PAGES NON ENCORE IMPLÉMENTÉES */}
-          {!showDashboard && !showLots && !showHistory && (
+          {!showDashboard && !showLots && !showHistory && !showCertification && (
             <div className="app-surface rounded-xl p-10 text-center">
               <h1 className="font-heading text-2xl font-bold">
                 {activePage}
