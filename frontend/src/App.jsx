@@ -378,10 +378,19 @@ function App() {
   }, [])
 
   // Recherche
-  const filteredLots = lots.filter(lot =>
-    `${lot.id} ${lot.type} ${lot.origin} ${lot.owner}`
+  const normalizeSearch = value =>
+    String(value ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
       .toLowerCase()
-      .includes(search.toLowerCase())
+
+  const normalizedSearch = normalizeSearch(search)
+
+  const filteredLots = lots.filter(lot =>
+    normalizeSearch(
+      `${lot.id} ${lot.type} ${lot.origin} ${lot.owner}`
+    ).includes(normalizedSearch)
   )
 
   // Statistiques
@@ -662,6 +671,7 @@ function App() {
                 onViewHistory={openHistory}
                 onViewAll={() => setActivePage('Lots de minerais')}
                 title="Derniers lots enregistrés"
+                emptyMessage={normalizedSearch ? 'Aucun lot ne correspond à votre recherche.' : 'Aucun lot enregistré.'}
               />
             </>
           )}
@@ -695,6 +705,7 @@ function App() {
                 loading={loading}
                 onViewHistory={openHistory}
                 title="Registre des minerais"
+                emptyMessage={normalizedSearch ? 'Aucun lot ne correspond à votre recherche.' : 'Aucun lot enregistré.'}
               />
             </section>
           )}
@@ -1096,6 +1107,7 @@ function LotsTable({
   onViewHistory,
   onViewAll,
   title,
+  emptyMessage = 'Aucun lot enregistré.',
 }) {
   return (
     <section className="app-surface overflow-hidden rounded-xl">
@@ -1181,7 +1193,7 @@ function LotsTable({
             ) : (
               <tr>
                 <td colSpan="7" className="px-5 py-10 text-center text-muted">
-                  Aucun lot enregistré.
+                  {emptyMessage}
                 </td>
               </tr>
             )}
