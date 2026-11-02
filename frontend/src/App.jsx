@@ -142,6 +142,12 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [search, setSearch] = useState('')
 
+  // Notifications
+  const [notifications, setNotifications] = useState([])
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const [notificationsLoading, setNotificationsLoading] = useState(false)
+  const [notificationError, setNotificationError] = useState('')
+
   // Données blockchain
   const [lots, setLots] = useState([])
   const [loading, setLoading] = useState(true)
@@ -179,6 +185,76 @@ function App() {
   const [historyError, setHistoryError] = useState('')
 
   const selectedLot = lots.find(lot => lot.id === transferData.id)
+
+  // Récupérer les notifications du backend
+  async function fetchNotifications() {
+    setNotificationsLoading(true)
+    setNotificationError('')
+
+    try {
+      const response = await fetch(`${API_URL}/notifications`)
+
+      if (!response.ok) {
+        throw new Error('Impossible de récupérer les notifications.')
+      }
+
+      const data = await response.json()
+
+      if (!Array.isArray(data)) {
+        throw new Error('Format des notifications invalide.')
+      }
+
+      setNotifications(data)
+    } catch (error) {
+      console.error('Erreur notifications :', error)
+      setNotificationError(error.message)
+    } finally {
+      setNotificationsLoading(false)
+    }
+  }
+
+  // Marquer une notification comme lue
+  async function markNotificationRead(id) {
+    try {
+      const response = await fetch(
+        `${API_URL}/notifications/${encodeURIComponent(id)}/read`,
+        { method: 'PATCH' }
+      )
+
+      if (!response.ok) {
+        throw new Error('Impossible de marquer cette notification comme lue.')
+      }
+
+      const updated = await response.json()
+
+      setNotifications(current =>
+        current.map(item => item.id === updated.id ? updated : item)
+      )
+    } catch (error) {
+      setNotificationError(error.message)
+    }
+  }
+
+  // Marquer toutes les notifications comme lues
+  async function markAllNotificationsRead() {
+    try {
+      const response = await fetch(`${API_URL}/notifications/read-all`, {
+        method: 'PATCH',
+      })
+
+      if (!response.ok) {
+        throw new Error('Impossible de mettre à jour les notifications.')
+      }
+
+      setNotifications(current =>
+        current.map(item => ({ ...item, read: true }))
+      )
+    } catch (error) {
+      setNotificationError(error.message)
+    }
+  }
+
+  const unreadNotifications = notifications.filter(item => !item.read).length
 
   // Récupérer tous les lots
   async function fetchLots() {
@@ -244,6 +320,7 @@ function App() {
       })
 
       await fetchLots()
+      await fetchNotifications()
       setShowCreateModal(false)
       setCreateSuccess(`Le lot ${createdId} a été enregistré.`)
     } catch (error) {
@@ -304,6 +381,7 @@ function App() {
       const owner = data.owner || transferData.newOwner.trim()
 
       await fetchLots()
+      await fetchNotifications()
       setShowTransferModal(false)
 
       setTransferSuccess(
@@ -375,6 +453,7 @@ function App() {
   // Chargement initial
   useEffect(() => {
     fetchLots()
+    fetchNotifications()
   }, [])
 
   // Recherche
@@ -536,13 +615,113 @@ function App() {
               <FontAwesomeIcon icon={theme === 'dark' ? faSun : faMoon} />
             </button>
 
-            <button
-              className="relative flex h-10 w-10 items-center justify-center rounded-lg text-muted hover:text-amber-500"
-              aria-label="Notifications"
-            >
-              <FontAwesomeIcon icon={faBell} />
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-amber-500" />
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => {
+                  const nextOpen = !notificationsOpen
+                  setNotificationsOpen(nextOpen)
+                  if (nextOpen) fetchNotifications()
+                }}
+                className="relative flex h-10 w-10 items-center justify-center rounded-lg text-muted hover:text-amber-500"
+                aria-label={`Notifications : ${unreadNotifications} non lues`}
+                aria-expanded={notificationsOpen}
+              >
+                <FontAwesomeIcon icon={faBell} />
+                {unreadNotifications > 0 && (
+                  <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">
+                    {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                  </span>
+                )}
+              </button>
+
+              {notificationsOpen && (
+                <div className="absolute right-0 top-12 z-[80] w-[min(90vw,380px)] overflow-hidden rounded-xl border border-app bg-[var(--surface)] shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-app p-4">
+                    <div>
+                      <h2 className="font-semibold">Notifications</h2>
+                      <p className="text-xs text-muted">
+                        {unreadNotifications} non lue(s)
+                      </p>
+                    </div>
+
+                    <button
+                      onClick={fetchNotifications}
+                      className="text-xs font-semibold text-blue-500 hover:underline"
+                    >
+                      Actualiser
+                    </button>
+                  </div>
+
+                  {unreadNotifications > 0 && (
+                    <div className="border-b border-app px-4 py-2 text-right">
+                      <button
+                        onClick={markAllNotificationsRead}
+                        className="text-xs font-semibold text-blue-500 hover:underline"
+                      >
+                        Tout marquer comme lu
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="max-h-[400px] overflow-y-auto">
+                    {notificationsLoading ? (
+                      <p className="p-6 text-center text-sm text-muted">
+                        Chargement des notifications...
+                      </p>
+                    ) : notificationError ? (
+                      <p className="p-5 text-sm text-red-500">
+                        {notificationError}
+                      </p>
+                    ) : notifications.length === 0 ? (
+                      <div className="p-8 text-center">
+                        <FontAwesomeIcon icon={faBell} className="mb-3 text-2xl text-muted" />
+                        <p className="text-sm font-semibold">Aucune notification</p>
+                        <p className="mt-1 text-xs text-muted">
+                          Les événements réels apparaîtront ici.
+                        </p>
+                      </div>
+                    ) : (
+                      notifications.map(item => (
+                        <div
+                          key={item.id}
+                          className={`border-b border-app p-4 ${
+                            item.read ? '' : 'bg-amber-500/5'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold">
+                                {item.title}
+                                {!item.read && (
+                                  <span className="ml-2 inline-block h-2 w-2 rounded-full bg-amber-500" />
+                                )}
+                              </p>
+                              <p className="mt-1 text-xs leading-5 text-muted">
+                                {item.message}
+                              </p>
+                              <p className="mt-2 text-[10px] text-muted">
+                                {item.createdAt
+                                  ? formatTimestamp(item.createdAt)
+                                  : 'Date indisponible'}
+                              </p>
+                            </div>
+
+                            {!item.read && (
+                              <button
+                                onClick={() => markNotificationRead(item.id)}
+                                className="shrink-0 text-xs font-semibold text-blue-500 hover:underline"
+                              >
+                                Lu
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div className="hidden items-center gap-3 sm:flex">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-900 font-bold text-white">
