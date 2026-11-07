@@ -11,7 +11,27 @@ import {
 } from '@fortawesome/free-solid-svg-icons'
 import './App.css'
 
-const API_URL = "https://benz-suddenly-surplus-galaxy.trycloudflare.com/api";
+
+async function apiFetch(url, options = {}) {
+  const token = sessionStorage.getItem('helios-token')
+  const headers = {
+    ...(options.headers || {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  }
+
+  const response = await window.fetch(url, { ...options, headers })
+
+  if (response.status === 401) {
+    sessionStorage.removeItem('helios-token')
+    window.location.reload()
+    throw new Error('Session expirée. Veuillez vous reconnecter.')
+  }
+
+  return response
+}
+
+const API_URL =
+  import.meta.env.VITE_API_URL || "http://localhost:3000/api";
 
 const navigation = [
   { label: 'Tableau de bord', icon: faHouse },
@@ -128,6 +148,15 @@ function getTransactionLabel(current, previous, isDelete) {
 }
 
 function App() {
+
+  const [token, setToken] = useState(() => sessionStorage.getItem('helios-token') || '')
+  const [user, setUser] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [loginEmail, setLoginEmail] = useState('')
+  const [loginPassword, setLoginPassword] = useState('')
+  const [loginError, setLoginError] = useState('')
+  const [loginLoading, setLoginLoading] = useState(false)
+
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem('helios-theme')
 
@@ -193,7 +222,7 @@ function App() {
     setNotificationError('')
 
     try {
-      const response = await fetch(`${API_URL}/notifications`)
+      const response = await apiFetch(`${API_URL}/notifications`)
 
       if (!response.ok) {
         throw new Error('Impossible de récupérer les notifications.')
@@ -217,7 +246,7 @@ function App() {
   // Marquer une notification comme lue
   async function markNotificationRead(id) {
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/notifications/${encodeURIComponent(id)}/read`,
         { method: 'PATCH' }
       )
@@ -239,7 +268,7 @@ function App() {
   // Marquer toutes les notifications comme lues
   async function markAllNotificationsRead() {
     try {
-      const response = await fetch(`${API_URL}/notifications/read-all`, {
+      const response = await apiFetch(`${API_URL}/notifications/read-all`, {
         method: 'PATCH',
       })
 
@@ -263,7 +292,7 @@ function App() {
     setApiError('')
 
     try {
-      const response = await fetch(`${API_URL}/lots`)
+      const response = await apiFetch(`${API_URL}/lots`)
 
       if (!response.ok) {
         throw new Error('Impossible de récupérer les lots.')
@@ -295,7 +324,7 @@ function App() {
     setCreateSuccess('')
 
     try {
-      const response = await fetch(`${API_URL}/lots`, {
+      const response = await apiFetch(`${API_URL}/lots`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -361,7 +390,7 @@ function App() {
     setTransferError('')
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/lots/${encodeURIComponent(transferData.id)}/transfer`,
         {
           method: 'POST',
@@ -408,7 +437,7 @@ function App() {
     setCertifyingLotId(lot.id)
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/lots/${encodeURIComponent(lot.id)}/certify`,
         { method: 'POST' }
       )
@@ -444,7 +473,7 @@ function App() {
     setHistory([])
 
     try {
-      const response = await fetch(
+      const response = await apiFetch(
         `${API_URL}/lots/${encodeURIComponent(lotId)}/history`
       )
 
@@ -487,10 +516,98 @@ function App() {
     localStorage.setItem('helios-theme', theme)
   }, [theme])
 
-  // Chargement initial
+
+  async function handleLogin(event) {
+    event.preventDefault()
+    setLoginError('')
+    setLoginLoading(true)
+
+    try {
+      const response = await window.fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: loginEmail.trim(),
+          password: loginPassword
+        })
+      })
+
+      const data = await response.json().catch(() => ({}))
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || 'Identifiants incorrects.')
+      }
+
+      if (!data.token || !data.user) {
+        throw new Error('Réponse du serveur invalide.')
+      }
+
+      sessionStorage.setItem('helios-token', data.token)
+      setToken(data.token)
+      setUser(data.user)
+      setLoginPassword('')
+
+      await fetchLots()
+      await fetchNotifications()
+    } catch (error) {
+      setLoginError(error.message || 'Impossible de se connecter au serveur.')
+    } finally {
+      setLoginLoading(false)
+    }
+  }
+
+  function handleLogout() {
+    sessionStorage.removeItem('helios-token')
+    setToken('')
+    setUser(null)
+    setLots([])
+    setNotifications([])
+    setActivePage('Tableau de bord')
+    setLoginPassword('')
+    setLoginError('')
+  }
+
+  // Restauration de la session
   useEffect(() => {
-    fetchLots()
-    fetchNotifications()
+    let active = true
+
+    async function restoreSession() {
+      const savedToken = sessionStorage.getItem('helios-token')
+
+      if (!savedToken) {
+        if (active) setAuthLoading(false)
+        return
+      }
+
+      try {
+        const response = await window.fetch(`${API_URL}/auth/me`, {
+          headers: { Authorization: `Bearer ${savedToken}` }
+        })
+        const data = await response.json().catch(() => ({}))
+
+        if (!response.ok || !data.user) {
+          throw new Error('Session invalide')
+        }
+
+        if (!active) return
+
+        setToken(savedToken)
+        setUser(data.user)
+        await fetchLots()
+        await fetchNotifications()
+      } catch {
+        sessionStorage.removeItem('helios-token')
+        if (active) {
+          setToken('')
+          setUser(null)
+        }
+      } finally {
+        if (active) setAuthLoading(false)
+      }
+    }
+
+    restoreSession()
+    return () => { active = false }
   }, [])
 
   // Recherche
@@ -525,6 +642,79 @@ function App() {
   const showHistory = activePage === 'Historique'
   const showCertification = activePage === 'Certification'
 
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
+        <div className="text-center">
+          <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-slate-600 border-t-cyan-400" />
+          <p className="text-sm text-slate-300">Vérification de la session HELIOS...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!token || !user) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-slate-950 px-4 py-10 text-white">
+        <section className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-8 shadow-2xl">
+          <div className="mb-8 text-center">
+            <div className="mb-4 text-3xl font-bold tracking-widest text-cyan-400">HELIOS</div>
+            <h1 className="text-2xl font-semibold">Bienvenue</h1>
+            <p className="mt-2 text-sm text-slate-400">Connectez-vous à votre espace de traçabilité minière.</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <label htmlFor="helios-email" className="mb-2 block text-sm text-slate-300">Adresse e-mail</label>
+              <input
+                id="helios-email"
+                type="email"
+                autoComplete="username"
+                required
+                value={loginEmail}
+                onChange={event => setLoginEmail(event.target.value)}
+                placeholder="nom@organisation.com"
+                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-cyan-400"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="helios-password" className="mb-2 block text-sm text-slate-300">Mot de passe</label>
+              <input
+                id="helios-password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={loginPassword}
+                onChange={event => setLoginPassword(event.target.value)}
+                placeholder="Votre mot de passe"
+                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-4 py-3 text-white outline-none focus:border-cyan-400"
+              />
+            </div>
+
+            {loginError && (
+              <div role="alert" className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                {loginError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={loginLoading}
+              className="w-full rounded-lg bg-cyan-500 px-4 py-3 font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loginLoading ? 'Connexion en cours...' : 'Se connecter'}
+            </button>
+          </form>
+
+          <p className="mt-8 text-center text-xs text-slate-500">
+            HELIOS · Traçabilité et certification des minerais
+          </p>
+        </section>
+      </main>
+    )
+  }
+
   return (
     <div className="min-h-screen bg-[var(--bg)] text-main">
 
@@ -552,7 +742,15 @@ function App() {
           </p>
 
           <nav className="space-y-1">
-            {navigation.map(item => (
+            {navigation.filter(item => {
+              const role = user?.role
+
+              if (role === 'ADMIN') return true
+              if (item.label === 'Enregistrer un lot') return role === 'PRODUCTEUR'
+              if (item.label === 'Transfert') return role === 'PRODUCTEUR'
+              if (item.label === 'Certification') return role === 'CERTIFICATEUR'
+              return true
+            }).map(item => (
               <button
                 key={item.label}
                 onClick={() => {
@@ -596,8 +794,17 @@ function App() {
             </div>
 
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">Jonathan Matondo</p>
-              <p className="text-xs text-muted">Administrateur</p>
+              <p className="truncate text-sm font-semibold">{user?.name || user?.email || 'Utilisateur'}</p>
+              <p className="text-xs text-muted">{user?.role === 'ADMIN' ? 'Administrateur' :
+                  user?.role === 'PRODUCTEUR' ? 'Producteur' :
+                  user?.role === 'CERTIFICATEUR' ? 'Certificateur' : 'Rôle inconnu'}</p>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="mt-2 text-xs font-medium text-red-500 hover:text-red-600"
+              >
+                Déconnexion
+              </button>
             </div>
 
             <FontAwesomeIcon icon={faChevronDown} className="text-xs text-muted" />
@@ -767,8 +974,10 @@ function App() {
               </div>
 
               <div>
-                <p className="text-sm font-semibold">Jonathan Matondo</p>
-                <p className="text-xs text-muted">Administrateur</p>
+                <p className="text-sm font-semibold">{user?.name || user?.email || 'Utilisateur'}</p>
+                <p className="text-xs text-muted">{user?.role === 'ADMIN' ? 'Administrateur' :
+                  user?.role === 'PRODUCTEUR' ? 'Producteur' :
+                  user?.role === 'CERTIFICATEUR' ? 'Certificateur' : 'Rôle inconnu'}</p>
               </div>
             </div>
           </div>
@@ -1218,16 +1427,202 @@ function App() {
             </section>
           )}
 
-          {/* AUTRES PAGES NON ENCORE IMPLÉMENTÉES */}
-          {!showDashboard && !showLots && !showHistory && !showCertification && (
-            <div className="app-surface rounded-xl p-10 text-center">
-              <h1 className="font-heading text-2xl font-bold">
-                {activePage}
-              </h1>
-              <p className="mt-2 text-sm text-muted">
-                Ce module sera disponible dans une prochaine étape.
-              </p>
-            </div>
+          {/* MODULE RAPPORTS */}
+          {activePage === 'Rapports' && (
+            <section className="space-y-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h1 className="font-heading text-2xl font-bold">Rapports</h1>
+                  <p className="mt-1 text-sm text-muted">
+                    Synthèse des données enregistrées dans HELIOS.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => {
+                    const headers = ['Identifiant', 'Minerai', 'Origine', 'Propriétaire', 'Poids (kg)', 'Certification']
+                    const rows = lots.map(lot => [
+                      lot.id ?? '',
+                      lot.type ?? '',
+                      lot.origin ?? '',
+                      lot.owner ?? '',
+                      lot.weight ?? '',
+                      lot.certified ? 'Certifié' : 'En attente'
+                    ])
+                    const escapeCSV = value => `"${String(value).replace(/"/g, '""')}"`
+                    const csv = [headers, ...rows]
+                      .map(row => row.map(escapeCSV).join(';'))
+                      .join('\n')
+                    const blob = new Blob(['\uFEFF' + csv], {
+                      type: 'text/csv;charset=utf-8;'
+                    })
+                    const url = URL.createObjectURL(blob)
+                    const link = document.createElement('a')
+                    link.href = url
+                    link.download = `helios-rapport-${new Date().toISOString().slice(0, 10)}.csv`
+                    document.body.appendChild(link)
+                    link.click()
+                    link.remove()
+                    URL.revokeObjectURL(url)
+                  }}
+                  disabled={loading || lots.length === 0}
+                  className="brand-button rounded-lg px-4 py-3 text-sm font-bold disabled:opacity-50"
+                >
+                  Exporter CSV
+                </button>
+              </div>
+
+              <ConnectionStatus loading={loading} onRefresh={fetchLots} />
+
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <StatCard icon={faCube} label="Total des lots"
+                  value={loading ? '...' : lots.length} color="blue" />
+                <StatCard icon={faShieldHalved} label="Lots certifiés"
+                  value={loading ? '...' : lots.filter(lot => lot.certified === true).length}
+                  color="green" />
+                <StatCard icon={faClockRotateLeft} label="En attente"
+                  value={loading ? '...' : lots.filter(lot => lot.certified !== true).length}
+                  color="orange" />
+                <StatCard icon={faCube} label="Poids total"
+                  value={loading ? '...' : `${totalWeight.toLocaleString('fr-FR')} kg`}
+                  color="blue" />
+              </div>
+
+              <div className="app-surface rounded-xl p-5">
+                <h2 className="font-heading font-bold">État des certifications</h2>
+                <div className="mt-5 space-y-4">
+                  <div>
+                    <div className="mb-2 flex justify-between text-sm">
+                      <span className="text-muted">Certifiés</span>
+                      <strong>{lots.filter(lot => lot.certified === true).length}</strong>
+                    </div>
+                    <div className="h-3 overflow-hidden rounded-full bg-[var(--surface-secondary)]">
+                      <div
+                        className="h-full rounded-full bg-green-500"
+                        style={{
+                          width: `${lots.length ? lots.filter(lot => lot.certified === true).length / lots.length * 100 : 0}%`
+                        }}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="mb-2 flex justify-between text-sm">
+                      <span className="text-muted">En attente</span>
+                      <strong>{lots.filter(lot => lot.certified !== true).length}</strong>
+                    </div>
+                    <div className="h-3 overflow-hidden rounded-full bg-[var(--surface-secondary)]">
+                      <div
+                        className="h-full rounded-full bg-amber-500"
+                        style={{
+                          width: `${lots.length ? lots.filter(lot => lot.certified !== true).length / lots.length * 100 : 0}%`
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="app-surface rounded-xl p-5">
+                <h2 className="font-heading font-bold">Données du rapport</h2>
+                <p className="mt-2 text-sm text-muted">
+                  Les indicateurs et l'export sont calculés à partir des lots
+                  récupérés depuis l'API HELIOS.
+                </p>
+              </div>
+            </section>
+          )}
+
+          {/* MODULE PARAMÈTRES */}
+          {activePage === 'Paramètres' && (
+            <section className="space-y-6">
+              <div>
+                <h1 className="font-heading text-2xl font-bold">Paramètres</h1>
+                <p className="mt-1 text-sm text-muted">
+                  Configuration de votre espace HELIOS.
+                </p>
+              </div>
+
+              <div className="app-surface rounded-xl p-6">
+                <h2 className="font-heading font-bold">Profil utilisateur</h2>
+                <p className="mt-1 text-sm text-muted">
+                  Informations de la session connectée.
+                </p>
+
+                <div className="mt-5 grid gap-5 sm:grid-cols-2">
+                  <div>
+                    <p className="text-xs text-muted">Nom</p>
+                    <p className="mt-1 font-semibold">{user?.name || user?.email || 'Non renseigné'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted">Adresse e-mail</p>
+                    <p className="mt-1 font-semibold">{user?.email || 'Non renseignée'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted">Rôle</p>
+                    <p className="mt-1 font-semibold">
+                      {user?.role === 'ADMIN' ? 'Administrateur' :
+                       user?.role === 'PRODUCTEUR' ? 'Producteur' :
+                       user?.role === 'CERTIFICATEUR' ? 'Certificateur' :
+                       user?.role || 'Non renseigné'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted">Application</p>
+                    <p className="mt-1 font-semibold">HELIOS Mineral Traceability</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="app-surface rounded-xl p-6">
+                <h2 className="font-heading font-bold">Apparence</h2>
+                <p className="mt-1 text-sm text-muted">
+                  Sélectionnez le thème de votre interface.
+                </p>
+
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <button
+                    onClick={() => setTheme('light')}
+                    aria-pressed={theme === 'light'}
+                    className={`rounded-lg border px-5 py-3 text-sm font-semibold ${
+                      theme === 'light'
+                        ? 'border-blue-500 bg-blue-500/10 text-blue-600'
+                        : 'border-app hover:bg-[var(--surface-secondary)]'
+                    }`}
+                  >
+                    <FontAwesomeIcon icon={faSun} className="mr-2" />
+                    Mode clair
+                  </button>
+
+                  <button
+                    onClick={() => setTheme('dark')}
+                    aria-pressed={theme === 'dark'}
+                    className={`rounded-lg border px-5 py-3 text-sm font-semibold ${
+                      theme === 'dark'
+                        ? 'border-blue-500 bg-blue-500/10 text-blue-600'
+                        : 'border-app hover:bg-[var(--surface-secondary)]'
+                    }`}
+                  >
+                    <FontAwesomeIcon icon={faMoon} className="mr-2" />
+                    Mode sombre
+                  </button>
+                </div>
+                <p className="mt-3 text-xs text-muted">
+                  La préférence est enregistrée localement sur cet appareil.
+                </p>
+              </div>
+
+              <div className="app-surface rounded-xl p-6">
+                <h2 className="font-heading font-bold">À propos de HELIOS</h2>
+                <p className="mt-2 text-sm text-muted">
+                  HELIOS assure le suivi et la traçabilité des lots de minerais
+                  grâce à Hyperledger Fabric.
+                </p>
+                <p className="mt-2 text-xs text-muted">
+                  Les informations du compte et les autorisations sont gérées
+                  par le système d'authentification.
+                </p>
+              </div>
+            </section>
           )}
 
           <footer className="flex flex-col justify-between gap-2 border-t border-app pt-5 text-xs text-muted sm:flex-row">
